@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="md_primary">#0F6B63</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#C8F3EC</color>
+    <color name="md_on_primary_container">#003731</color>
+    <color name="md_secondary">#4A635F</color>
+    <color name="md_on_secondary">#FFFFFF</color>
+    <color name="md_secondary_container">#CCE8E2</color>
+    <color name="md_on_secondary_container">#05201C</color>
+    <color name="md_background">#F6F3EE</color>
+    <color name="md_on_background">#1C1C19</color>
+    <color name="md_surface">#F6F3EE</color>
+    <color name="md_on_surface">#1C1C19</color>
+    <color name="md_surface_variant">#E7E3DC</color>
+    <color name="md_on_surface_variant">#444740</color>
+    <color name="md_outline">#74776F</color>
+    <color name="md_surface_container">#EFEBE4</color>
+    <color name="md_surface_container_low">#F3F0E9</color>
+    <color name="md_surface_container_high">#E9E5DE</color>
+    <color name="md_error">#B42318</color>
+
+    <color name="type_subscription">#4338CA</color>
+    <color name="type_phone">#0F766E</color>
+    <color name="type_electric">#B45309</color>
+    <color name="type_water">#0369A1</color>
+    <color name="type_gas">#C2410C</color>
+    <color name="type_other">#475569</color>
+
+    <color name="badge_overdue_bg">#FEE4E2</color>
+    <color name="badge_overdue_fg">#B42318</color>
+    <color name="badge_soon_bg">#FEF0C7</color>
+    <color name="badge_soon_fg">#B54708</color>
+    <color name="badge_ok_bg">#D1FADF</color>
+    <color name="badge_ok_fg">#067647</color>
+
+    <color name="kind_monthly_bg">#D1FADF</color>
+    <color name="kind_monthly_fg">#067647</color>
+    <color name="kind_yearly_bg">#E0E7FF</color>
+    <color name="kind_yearly_fg">#3730A3</color>
+    <color name="kind_once_bg">#FDE8D8</color>
+    <color name="kind_once_fg">#9A3412</color>
+    <color name="kind_weekly_bg">#E0F2FE</color>
+    <color name="kind_weekly_fg">#0369A1</color>
+    <color name="kind_daily_bg">#FEF3C7</color>
+    <color name="kind_daily_fg">#92400E</color>
+    <color name="kind_quarterly_bg">#F3E8FF</color>
+    <color name="kind_quarterly_fg">#6B21A8</color>
+    <color name="kind_other_bg">#E2E8F0</color>
+    <color name="kind_other_fg">#334155</color>
+
+    <color name="ic_launcher_bg">#B85C38</color>
+</resources>

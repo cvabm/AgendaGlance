@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="md_primary">#5DCFC4</color>
+    <color name="md_on_primary">#003731</color>
+    <color name="md_primary_container">#005048</color>
+    <color name="md_on_primary_container">#C8F3EC</color>
+    <color name="md_secondary">#B1CCC6</color>
+    <color name="md_on_secondary">#1C3531</color>
+    <color name="md_secondary_container">#334B47</color>
+    <color name="md_on_secondary_container">#CCE8E2</color>
+    <color name="md_background">#121412</color>
+    <color name="md_on_background">#E5E2DC</color>
+    <color name="md_surface">#121412</color>
+    <color name="md_on_surface">#E5E2DC</color>
+    <color name="md_surface_variant">#2A2D28</color>
+    <color name="md_on_surface_variant">#C5C7BE</color>
+    <color name="md_outline">#8F9289</color>
+    <color name="md_surface_container">#1C1F1C</color>
+    <color name="md_surface_container_low">#1A1C1A</color>
+    <color name="md_surface_container_high">#262926</color>
+    <color name="md_error">#FFB4AB</color>
+
+    <color name="badge_overdue_bg">#3B1511</color>
+    <color name="badge_overdue_fg">#FFB4AB</color>
+    <color name="badge_soon_bg">#3B2A10</color>
+    <color name="badge_soon_fg">#FEC84B</color>
+    <color name="badge_ok_bg">#0F3B24</color>
+    <color name="badge_ok_fg">#6CE9A6</color>
+
+    <color name="kind_monthly_bg">#0F3B24</color>
+    <color name="kind_monthly_fg">#6CE9A6</color>
+    <color name="kind_yearly_bg">#1E1B4B</color>
+    <color name="kind_yearly_fg">#A5B4FC</color>
+    <color name="kind_once_bg">#3B1C10</color>
+    <color name="kind_once_fg">#FDBA74</color>
+    <color name="kind_weekly_bg">#0C2D48</color>
+    <color name="kind_weekly_fg">#7DD3FC</color>
+    <color name="kind_daily_bg">#3B2A10</color>
+    <color name="kind_daily_fg">#FEC84B</color>
+    <color name="kind_quarterly_bg">#2E1065</color>
+    <color name="kind_quarterly_fg">#D8B4FE</color>
+    <color name="kind_other_bg">#1E293B</color>
+    <color name="kind_other_fg">#CBD5E1</color>
+</resources>
