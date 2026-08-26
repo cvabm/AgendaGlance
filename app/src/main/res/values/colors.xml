@@ -48,6 +48,10 @@
     <color name="kind_quarterly_fg">#6B21A8</color>
     <color name="kind_other_bg">#E2E8F0</color>
     <color name="kind_other_fg">#334155</color>
+    <color name="kind_life_bg">#D1FADF</color>
+    <color name="kind_life_fg">#067647</color>
+    <color name="kind_subscription_bg">#EEF2FF</color>
+    <color name="kind_subscription_fg">#4338CA</color>
 
     <color name="ic_launcher_bg">#B85C38</color>
 </resources>

@@ -6,16 +6,22 @@ import android.os.Build
 import android.provider.CalendarContract
 
 object VendorGuard {
+    private val CALENDAR_PACKAGES = listOf(
+        "com.xiaomi.calendar",
+        "com.android.calendar",
+        "com.google.android.calendar",
+        "com.samsung.android.calendar"
+    )
+
     fun manufacturer(): String = (Build.MANUFACTURER + " " + Build.BRAND).trim()
 
+    fun systemCalendarPackage(context: Context): String? =
+        CALENDAR_PACKAGES.firstOrNull { pkg ->
+            context.packageManager.getLaunchIntentForPackage(pkg) != null
+        }
+
     fun openSystemCalendar(context: Context): Boolean {
-        val packages = listOf(
-            "com.xiaomi.calendar",
-            "com.android.calendar",
-            "com.google.android.calendar",
-            "com.samsung.android.calendar"
-        )
-        for (pkg in packages) {
+        for (pkg in CALENDAR_PACKAGES) {
             val launch = context.packageManager.getLaunchIntentForPackage(pkg)
             if (launch != null) {
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

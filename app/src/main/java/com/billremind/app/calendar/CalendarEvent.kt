@@ -61,16 +61,6 @@ data class CalendarEvent(
         }
     }
 
-    fun subtitle(): String {
-        val bits = mutableListOf<String>()
-        bits += calendarName.ifBlank { account }.ifBlank { "系统日历" }
-        if (location.isNotBlank()) bits += location
-        else if (description.isNotBlank()) bits += description.lineSequence().first().trim()
-        if (recurring) bits += "重复"
-        if (hasAlarm) bits += "有提醒"
-        return bits.joinToString(" · ")
-    }
-
     companion object {
         private val HM = DateTimeFormatter.ofPattern("HH:mm")
         private val MD_HM = DateTimeFormatter.ofPattern("M月d日 HH:mm")

@@ -70,6 +70,25 @@ class RecurrenceParserTest {
         assertEquals("明天", series.daysLabel(LocalDate.of(2027, 1, 14)))
     }
 
+    @Test
+    fun subscribedItemMovesToSubscriptionCategory() {
+        val series = EventSeries(
+            eventId = 1,
+            calendarId = 1,
+            title = "视频会员",
+            calendarName = "小米日历",
+            color = 0,
+            hasAlarm = false,
+            kind = RecurrenceKind.MONTHLY,
+            ruleLabel = "每月15日",
+            next = event(date = LocalDate.of(2026, 9, 15), title = "视频会员"),
+            upcomingCount = 1,
+            subscribed = true
+        )
+        assertEquals(RecurrenceKind.SUBSCRIPTION, series.displayKind())
+        assertEquals("订阅", series.displayKind().label)
+    }
+
     private fun event(
         date: LocalDate,
         title: String,

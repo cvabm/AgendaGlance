@@ -41,4 +41,8 @@
     <color name="kind_quarterly_fg">#D8B4FE</color>
     <color name="kind_other_bg">#1E293B</color>
     <color name="kind_other_fg">#CBD5E1</color>
+    <color name="kind_life_bg">#0F3B24</color>
+    <color name="kind_life_fg">#6CE9A6</color>
+    <color name="kind_subscription_bg">#1E1B4B</color>
+    <color name="kind_subscription_fg">#C7D2FE</color>
 </resources>

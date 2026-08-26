@@ -121,15 +121,72 @@ class DeviceCalendar(private val context: Context) {
         return out
     }
 
-    fun viewEventIntent(eventId: Long): Intent {
+    fun openEvent(context: Context, event: CalendarEvent): Boolean {
+        val begin = event.beginMs
+        val end = if (event.endMs > event.beginMs) event.endMs else event.beginMs + 3_600_000L
+        val pkg = VendorGuard.systemCalendarPackage(context)
+        val attempts = buildList {
+            if (pkg != null) {
+                add(viewEventIntent(event.eventId, begin, end, event.allDay).setClassName(
+                    pkg,
+                    "com.android.calendar.event.EventInfoActivity"
+                ))
+                add(viewEventIntent(event.eventId, begin, end, event.allDay).setPackage(pkg))
+            }
+            add(viewEventIntent(event.eventId, begin, end, event.allDay))
+            if (pkg != null) add(viewDayIntent(begin).setPackage(pkg))
+            add(viewDayIntent(begin))
+        }
+        for (intent in attempts) {
+            try {
+                context.startActivity(intent)
+                return true
+            } catch (_: Exception) {
+            }
+        }
+        return VendorGuard.openSystemCalendar(context)
+    }
+
+    fun viewEventIntent(
+        eventId: Long,
+        beginMs: Long,
+        endMs: Long,
+        allDay: Boolean = false
+    ): Intent {
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-        return Intent(Intent.ACTION_VIEW).setData(uri)
+        return Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "vnd.android.cursor.item/event")
+            putEventTimes(eventId, beginMs, endMs, allDay)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
     }
 
     fun viewDayIntent(millis: Long = System.currentTimeMillis()): Intent {
         val builder = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
         ContentUris.appendId(builder, millis)
-        return Intent(Intent.ACTION_VIEW).setData(builder.build())
+        return Intent(Intent.ACTION_VIEW).apply {
+            data = builder.build()
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, millis)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+    }
+
+    private fun Intent.putEventTimes(
+        eventId: Long,
+        beginMs: Long,
+        endMs: Long,
+        allDay: Boolean
+    ) {
+        putExtra(CalendarContract.EXTRA_EVENT_ID, eventId)
+        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMs)
+        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
+        putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, allDay)
+        putExtra("extra_event_id", eventId)
+        putExtra("extra_event_start_millis", beginMs)
+        putExtra("extra_event_time", beginMs)
+        putExtra("key_event_id", eventId)
+        putExtra("key_start_millis", beginMs)
+        putExtra("key_end_millis", endMs)
     }
 
     companion object {

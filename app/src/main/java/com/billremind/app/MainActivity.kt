@@ -20,7 +20,6 @@ import com.billremind.app.calendar.RecurrenceParser
 import com.billremind.app.calendar.VendorGuard
 import com.billremind.app.databinding.ActivityMainBinding
 import com.billremind.app.ui.CalendarAdapter
-import com.google.android.material.chip.Chip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,10 +30,13 @@ class MainActivity : AppCompatActivity() {
 
     private var calendars: List<CalendarInfo> = emptyList()
     private var series: List<EventSeries> = emptyList()
-    private var filterKind: String = FILTER_ALL
-    private var chipsReady = false
+    private var filterKind: String = FILTER_LIFE
+    private var updatingChips = false
 
-    private val adapter = CalendarAdapter { openSeries(it) }
+    private val adapter = CalendarAdapter(
+        onClick = { openSeries(it) },
+        onLongClick = { toggleSubscription(it) }
+    )
 
     private val calendarPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -54,9 +56,14 @@ class MainActivity : AppCompatActivity() {
         binding.refresh.setOnRefreshListener { load() }
         binding.fab.setOnClickListener { onFab() }
 
-        binding.filters.setOnCheckedStateChangeListener { group, checkedIds ->
-            val chip = checkedIds.firstOrNull()?.let { group.findViewById<Chip>(it) }
-            filterKind = (chip?.tag as? String) ?: FILTER_ALL
+        binding.filters.setOnCheckedStateChangeListener { _, checkedIds ->
+            if (updatingChips) return@setOnCheckedStateChangeListener
+            filterKind = if (checkedIds.firstOrNull() == binding.subscriptionFilter.id) {
+                FILTER_SUBSCRIPTION
+            } else {
+                FILTER_LIFE
+            }
+            syncCheckedFilters()
             renderList()
         }
 
@@ -104,7 +111,9 @@ class MainActivity : AppCompatActivity() {
                     DeviceCalendar.rangeStartMs(),
                     DeviceCalendar.rangeEndMs()
                 )
-                cals to RecurrenceParser.group(items, DeviceCalendar.ONCE_DAYS)
+                val grouped = RecurrenceParser.group(items, DeviceCalendar.ONCE_DAYS)
+                val subscribed = app.userTags.subscriptionIds()
+                cals to grouped.map { it.copy(subscribed = it.eventId in subscribed) }
             }
             calendars = loaded.first
             series = loaded.second
@@ -115,32 +124,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureChips() {
-        val kinds = RecurrenceKind.entries.filter { kind -> series.any { it.kind == kind } }
-        val tags = listOf(FILTER_ALL) + kinds.map { it.storage }
-        val group = binding.filters
-        val existing = (0 until group.childCount).mapNotNull { group.getChildAt(it).tag as? String }
-        if (chipsReady && existing == tags) return
-        group.removeAllViews()
-        group.addView(chip("全部", FILTER_ALL, filterKind == FILTER_ALL))
-        kinds.forEach { kind ->
-            val count = series.count { it.kind == kind }
-            group.addView(chip("${kind.label} $count", kind.storage, filterKind == kind.storage))
-        }
-        if (filterKind != FILTER_ALL && kinds.none { it.storage == filterKind }) {
-            filterKind = FILTER_ALL
-            (group.getChildAt(0) as? Chip)?.isChecked = true
-        }
-        chipsReady = true
+        binding.lifeFilter.text = "生活 ${series.count { !it.subscribed }}"
+        binding.subscriptionFilter.text = "订阅 ${series.count { it.subscribed }}"
+        syncCheckedFilters()
     }
 
-    private fun chip(label: String, tag: String, checked: Boolean): Chip {
-        return Chip(this).apply {
-            text = label
-            this.tag = tag
-            isCheckable = true
-            isChecked = checked
-            isClickable = true
+    private fun syncCheckedFilters() {
+        updatingChips = true
+        val checkedId = if (filterKind == FILTER_SUBSCRIPTION) {
+            binding.subscriptionFilter.id
+        } else {
+            binding.lifeFilter.id
         }
+        if (binding.filters.checkedChipId != checkedId) {
+            binding.filters.check(checkedId)
+        }
+        updatingChips = false
     }
 
     private fun render() {
@@ -161,10 +160,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderList() {
-        val filtered = if (filterKind == FILTER_ALL) {
-            series
-        } else {
-            series.filter { it.kind.storage == filterKind }
+        val filtered = when (filterKind) {
+            FILTER_SUBSCRIPTION -> series.filter { it.subscribed }
+            else -> series.filter { !it.subscribed }
         }
         val todayItems = filtered.filter { it.daysUntil() == 0 }
             .sortedBy { it.next.beginMs }
@@ -176,7 +174,7 @@ class MainActivity : AppCompatActivity() {
             binding.summaryTitle.text = "今天 ${todayItems.size} 件"
             binding.summaryAmount.text = first.title
             binding.summaryHint.text = buildString {
-                append(first.kind.label)
+                append(first.categoryLabel())
                 append(" · ")
                 append(first.ruleLabel)
                 if (todayItems.size > 1) {
@@ -185,17 +183,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val rows = buildRows(filtered, grouped = filterKind != FILTER_ALL)
+        val rows = buildRows(filtered, grouped = false)
         adapter.submitList(rows)
         val empty = rows.isEmpty()
         binding.list.visibility = if (empty) View.GONE else View.VISIBLE
         binding.empty.visibility = if (empty) View.VISIBLE else View.GONE
         if (empty) {
-            binding.emptyTitle.text = if (calendars.isEmpty()) "没有系统日历" else "没有这类日程"
-            binding.emptyHint.text = if (calendars.isEmpty()) {
-                "请先打开一次小米日历或系统日历，再回到这里下拉刷新。"
-            } else {
-                "列出未来一年的日程（含明年）。可按每月 / 每年等筛选。"
+            binding.emptyTitle.text = when {
+                calendars.isEmpty() -> "没有系统日历"
+                filterKind == FILTER_SUBSCRIPTION -> "还没有订阅"
+                else -> "没有生活日程"
+            }
+            binding.emptyHint.text = when {
+                calendars.isEmpty() -> "请先打开一次小米日历或系统日历，再回到这里下拉刷新。"
+                filterKind == FILTER_SUBSCRIPTION -> "长按生活日程，把它加入订阅。"
+                else -> "未加入订阅的日程会放在这里。"
             }
         }
     }
@@ -227,21 +229,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun toggleSubscription(item: EventSeries) {
+        val next = !item.subscribed
+        app.userTags.setSubscribed(item.eventId, next)
+        series = series.map { if (it.eventId == item.eventId) it.copy(subscribed = next) else it }
+        ensureChips()
+        renderList()
+        Toast.makeText(this, if (next) "已加入订阅" else "已移出订阅", Toast.LENGTH_SHORT).show()
+    }
+
     private fun openSeries(series: EventSeries) {
-        try {
-            startActivity(app.deviceCalendar.viewEventIntent(series.eventId))
-        } catch (_: Exception) {
-            try {
-                startActivity(app.deviceCalendar.viewDayIntent(series.next.beginMs))
-            } catch (_: Exception) {
-                if (!VendorGuard.openSystemCalendar(this)) {
-                    Toast.makeText(this, "打不开这条日程", Toast.LENGTH_SHORT).show()
-                }
-            }
+        if (!app.deviceCalendar.openEvent(this, series.next)) {
+            Toast.makeText(this, "打不开这条日程", Toast.LENGTH_SHORT).show()
         }
     }
 
     companion object {
-        private const val FILTER_ALL = "all"
+        private const val FILTER_LIFE = "life"
+        private const val FILTER_SUBSCRIPTION = "subscription"
     }
 }

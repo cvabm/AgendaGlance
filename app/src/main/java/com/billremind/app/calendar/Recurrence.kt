@@ -9,6 +9,7 @@ enum class RecurrenceKind(
     val label: String,
     val order: Int
 ) {
+    SUBSCRIPTION("subscription", "订阅", -1),
     MONTHLY("monthly", "每月", 0),
     QUARTERLY("quarterly", "每季度", 1),
     YEARLY("yearly", "每年", 2),
@@ -33,8 +34,15 @@ data class EventSeries(
     val kind: RecurrenceKind,
     val ruleLabel: String,
     val next: CalendarEvent,
-    val upcomingCount: Int
+    val upcomingCount: Int,
+    val subscribed: Boolean = false
 ) {
+    fun displayKind(): RecurrenceKind =
+        if (subscribed) RecurrenceKind.SUBSCRIPTION else kind
+
+    fun categoryLabel(): String =
+        if (subscribed) "订阅" else "生活"
+
     fun daysUntil(today: LocalDate = LocalDate.now()): Int =
         ChronoUnit.DAYS.between(today, next.localDate()).toInt()
 
@@ -49,20 +57,6 @@ data class EventSeries(
                 else -> "${d}天后"
             }
         }
-    }
-
-    fun subtitle(): String {
-        val bits = mutableListOf(ruleLabel)
-        bits += "下次 ${nextWhen()}"
-        bits += calendarName
-        if (hasAlarm) bits += "有提醒"
-        if (kind != RecurrenceKind.ONCE && upcomingCount > 1) bits += "近一年 ${upcomingCount} 次"
-        return bits.joinToString(" · ")
-    }
-
-    private fun nextWhen(): String {
-        val dateText = CalendarLabels.upcomingDate(next.localDate())
-        return if (next.allDay) dateText else "$dateText ${next.timeLabel()}"
     }
 }
 
@@ -101,6 +95,7 @@ object RecurrenceParser {
                 RecurrenceKind.YEARLY -> "每年${date.monthValue}月${date.dayOfMonth}日"
                 RecurrenceKind.OTHER -> "重复"
                 RecurrenceKind.ONCE -> onceLabel(sample, date)
+                RecurrenceKind.SUBSCRIPTION -> "订阅"
             }
         }
         return when (freq) {

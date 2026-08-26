@@ -11,12 +11,12 @@ import androidx.recyclerview.widget.RecyclerView
 import com.billremind.app.R
 import com.billremind.app.calendar.CalendarRow
 import com.billremind.app.calendar.EventSeries
-import com.billremind.app.calendar.RecurrenceKind
 import com.billremind.app.databinding.ItemDayHeaderBinding
 import com.billremind.app.databinding.ItemEventBinding
 
 class CalendarAdapter(
-    private val onClick: (EventSeries) -> Unit
+    private val onClick: (EventSeries) -> Unit,
+    private val onLongClick: (EventSeries) -> Unit
 ) : ListAdapter<CalendarRow, RecyclerView.ViewHolder>(Diff) {
 
     object Diff : DiffUtil.ItemCallback<CalendarRow>() {
@@ -48,7 +48,7 @@ class CalendarAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val row = getItem(position)) {
             is CalendarRow.Section -> (holder as HeaderHolder).bind(row)
-            is CalendarRow.Series -> (holder as EventHolder).bind(row.item, onClick)
+            is CalendarRow.Series -> (holder as EventHolder).bind(row.item, onClick, onLongClick)
         }
     }
 
@@ -59,17 +59,20 @@ class CalendarAdapter(
     }
 
     class EventHolder(private val binding: ItemEventBinding) : RecyclerView.ViewHolder(binding.root) {
-        fun bind(series: EventSeries, onClick: (EventSeries) -> Unit) {
+        fun bind(
+            series: EventSeries,
+            onClick: (EventSeries) -> Unit,
+            onLongClick: (EventSeries) -> Unit
+        ) {
             val color = if (series.color != 0) series.color else Color.parseColor("#0F6B63")
             binding.colorBar.setBackgroundColor(color or 0xFF000000.toInt())
-            val (kindBg, kindFg) = kindColors(series.kind)
-            binding.badge.text = series.kind.label
+            val (kindBg, kindFg) = categoryColors(series.subscribed)
+            binding.badge.text = series.categoryLabel()
             binding.badge.backgroundTintList = ColorStateList.valueOf(
                 ContextCompat.getColor(binding.root.context, kindBg)
             )
             binding.badge.setTextColor(ContextCompat.getColor(binding.root.context, kindFg))
             binding.title.text = series.title
-            binding.subtitle.text = series.subtitle()
             binding.days.text = series.daysLabel()
             val days = series.daysUntil()
             val badgeBg = when {
@@ -85,6 +88,10 @@ class CalendarAdapter(
             binding.days.setBackgroundResource(badgeBg)
             binding.days.setTextColor(ContextCompat.getColor(binding.root.context, badgeFg))
             binding.root.setOnClickListener { onClick(series) }
+            binding.root.setOnLongClickListener {
+                onLongClick(series)
+                true
+            }
         }
     }
 
@@ -92,14 +99,11 @@ class CalendarAdapter(
         private const val TYPE_HEADER = 1
         private const val TYPE_EVENT = 2
 
-        private fun kindColors(kind: RecurrenceKind): Pair<Int, Int> = when (kind) {
-            RecurrenceKind.MONTHLY -> R.color.kind_monthly_bg to R.color.kind_monthly_fg
-            RecurrenceKind.YEARLY -> R.color.kind_yearly_bg to R.color.kind_yearly_fg
-            RecurrenceKind.ONCE -> R.color.kind_once_bg to R.color.kind_once_fg
-            RecurrenceKind.WEEKLY -> R.color.kind_weekly_bg to R.color.kind_weekly_fg
-            RecurrenceKind.DAILY -> R.color.kind_daily_bg to R.color.kind_daily_fg
-            RecurrenceKind.QUARTERLY -> R.color.kind_quarterly_bg to R.color.kind_quarterly_fg
-            RecurrenceKind.OTHER -> R.color.kind_other_bg to R.color.kind_other_fg
-        }
+        private fun categoryColors(subscribed: Boolean): Pair<Int, Int> =
+            if (subscribed) {
+                R.color.kind_subscription_bg to R.color.kind_subscription_fg
+            } else {
+                R.color.kind_life_bg to R.color.kind_life_fg
+            }
     }
 }
