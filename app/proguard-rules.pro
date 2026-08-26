@@ -1,1 +1,1 @@
-# BillRemind — read-only system calendar viewer
+# AgendaGlance — read-only system calendar viewer

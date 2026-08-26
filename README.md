@@ -1,4 +1,4 @@
-# 系统日历（BillRemind）
+# 日程一览
 
 只读取手机**系统日历**（小米日历 / 谷歌日历 / 系统日历）里已有的日程并展示。应用自己**不记账单、不写入日历**。
 
@@ -14,7 +14,7 @@
 ## 构建
 
 ```
-cd BillRemind
+cd AgendaGlance
 .\gradlew.bat assembleDebug
 .\gradlew.bat installDebug
 ```

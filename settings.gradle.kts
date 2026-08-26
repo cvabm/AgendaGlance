@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BillRemind"
+rootProject.name = "AgendaGlance"
 include(":app")
