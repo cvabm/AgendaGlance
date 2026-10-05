@@ -20,3 +20,11 @@ cd AgendaGlance
 ```
 
 包名 `com.billremind.app`，权限只有 `READ_CALENDAR`。
+
+## 下载与发布
+
+安装包见 [GitHub Releases](https://github.com/cvabm/AgendaGlance/releases)，每版包含已校验签名的 APK 与 `SHA256SUMS.txt`。正式发布由 [Release workflow](https://github.com/cvabm/AgendaGlance/actions/workflows/release.yml) 自动构建并上传，不需要手动上传本地 APK。
+
+在 Actions 中选择 **Release → Run workflow → main** 即可发布当前应用版本；也支持推送与应用版本匹配的 `v*` tag。`app/build.gradle.kts` 中的 `versionName = "1.0"` 对应 `v1.0.0`，再次发新版必须同时递增 `versionName` 和 `versionCode`，不能复用既有 Release。普通 Android CI 仍只负责构建和测试，不会发布。
+
+目前沿用仓库已有签名以保持安装兼容；签名材料已公开，不应作为生产环境秘密使用。调整签名需要另行确认，并评估旧版用户的升级方式。

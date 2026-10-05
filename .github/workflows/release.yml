@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agendaglance-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate version
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME=$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts)
+          VERSION_CODE=$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts)
+          [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo 'Invalid versionName'; exit 1; }
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || { echo 'Invalid versionCode'; exit 1; }
+          if [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            TAG="v${VERSION_NAME}.0"
+          else
+            TAG="v${VERSION_NAME}"
+          fi
+          if [[ "$GITHUB_REF_TYPE" == 'tag' && "$GITHUB_REF_NAME" != "$TAG" ]]; then
+            echo "Tag must match app version: expected $TAG"
+            exit 1
+          fi
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+            [[ "$TAG_SHA" == "$GITHUB_SHA" ]] || { echo 'Existing tag belongs to another commit'; exit 1; }
+          fi
+          RELEASE_TAGS=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
+          if grep -Fxq -- "$TAG" <<< "$RELEASE_TAGS"; then
+            echo "Release $TAG already exists; increment app versionName and versionCode before publishing again."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Publishing $TAG, Android versionCode=$VERSION_CODE"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Test and build release APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test assembleRelease
+
+      - name: Validate and package APK
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          APP_VERSION_NAME: ${{ steps.version.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          APKS=(app/build/outputs/apk/release/*.apk)
+          [[ ${#APKS[@]} -eq 1 ]] || { echo 'Expected exactly one release APK'; exit 1; }
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)
+          [[ -x "$BUILD_TOOLS/apksigner" && -x "$BUILD_TOOLS/aapt" ]] || { echo 'Android verification tools missing'; exit 1; }
+          "$BUILD_TOOLS/apksigner" verify --verbose "${APKS[0]}"
+          BADGING=$("$BUILD_TOOLS/aapt" dump badging "${APKS[0]}")
+          PACKAGE_LINE=$(head -n1 <<< "$BADGING")
+          grep -Fq "name='com.billremind.app'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionName='$APP_VERSION_NAME'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionCode='$APP_VERSION_CODE'" <<< "$PACKAGE_LINE"
+          mkdir -p release
+          cp "${APKS[0]}" "release/AgendaGlance-${RELEASE_TAG}.apk"
+          cd release
+          sha256sum "AgendaGlance-${RELEASE_TAG}.apk" > SHA256SUMS.txt
+
+      - name: Upload verified APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgendaGlance-${{ steps.version.outputs.tag }}
+          path: release/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: AgendaGlance ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release/*.apk
+            release/SHA256SUMS.txt
+          fail_on_unmatched_files: true
