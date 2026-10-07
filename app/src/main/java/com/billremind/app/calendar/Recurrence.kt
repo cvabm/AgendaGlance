@@ -44,10 +44,13 @@ data class EventSeries(
         if (subscribed) "订阅" else "生活"
 
     fun daysUntil(today: LocalDate = LocalDate.now()): Int =
-        ChronoUnit.DAYS.between(today, next.localDate()).toInt()
+        if (next.occursOn(today)) 0 else ChronoUnit.DAYS.between(today, next.localDate()).toInt()
 
-    fun daysLabel(today: LocalDate = LocalDate.now()): String {
+    fun daysLabel(today: LocalDate = LocalDate.now(), nowMs: Long = System.currentTimeMillis()): String {
         val date = next.localDate()
+        if (date.isBefore(today) && next.occursOn(today)) {
+            return if (next.allDay || next.endMs > nowMs) "进行中" else "已结束"
+        }
         return when (val d = daysUntil(today)) {
             0 -> "今天"
             1 -> "明天"
@@ -86,6 +89,10 @@ object RecurrenceParser {
         val byMonthDay = part(rrule, "BYMONTHDAY")
         val byMonth = part(rrule, "BYMONTH")
         val date = sample.localDate()
+        // Do not turn unsupported selectors into a misleading sampled fixed date.
+        if (listOf("BYYEARDAY", "BYWEEKNO", "BYHOUR", "BYMINUTE", "BYSECOND").any { part(rrule, it) != null }) {
+            return "重复（按自定义规则）"
+        }
         if (freq.isNullOrBlank()) {
             return when (kind) {
                 RecurrenceKind.DAILY -> "每天"
@@ -99,7 +106,11 @@ object RecurrenceParser {
             }
         }
         return when (freq) {
-            "DAILY" -> if (interval <= 1) "每天" else "每${interval}天"
+            "DAILY" -> {
+                val prefix = if (interval <= 1) "每天" else "每${interval}天"
+                val days = formatByDay(byDay)
+                if (days != null) "$prefix（周$days）" else prefix
+            }
             "WEEKLY" -> {
                 val days = formatByDay(byDay)
                 when {
@@ -110,7 +121,7 @@ object RecurrenceParser {
                 }
             }
             "MONTHLY" -> {
-                val dayText = monthDayText(byMonthDay, date.dayOfMonth)
+                val dayText = ruleDayText(byMonthDay, byDay, part(rrule, "BYSETPOS"), date.dayOfMonth)
                 when (interval) {
                     1 -> "每月$dayText"
                     3 -> "每季度$dayText"
@@ -118,9 +129,16 @@ object RecurrenceParser {
                 }
             }
             "YEARLY" -> {
-                val month = byMonth?.toIntOrNull() ?: date.monthValue
-                val day = byMonthDay?.toIntOrNull()?.takeIf { it > 0 } ?: date.dayOfMonth
-                if (interval > 1) "每${interval}年${month}月${day}日" else "每年${month}月${day}日"
+                // An ordinal BYDAY without BYMONTH is relative to the year, not a sampled month.
+                val months = byMonth?.split(',')?.mapNotNull { it.toIntOrNull()?.takeIf { n -> n in 1..12 } }
+                val monthText = when {
+                    !months.isNullOrEmpty() -> months.joinToString("、") { "${it}月" }
+                    byDay != null -> ""
+                    else -> "${date.monthValue}月"
+                }
+                val dayText = ruleDayText(byMonthDay, byDay, part(rrule, "BYSETPOS"), date.dayOfMonth)
+                val prefix = if (interval > 1) "每${interval}年" else "每年"
+                "$prefix$monthText$dayText"
             }
             else -> if (instances.size > 1) "重复" else onceLabel(sample, date)
         }
@@ -131,7 +149,8 @@ object RecurrenceParser {
         onceWithinDays: Long = 366,
         today: LocalDate = LocalDate.now()
     ): List<EventSeries> {
-        return events.groupBy { it.eventId }.mapNotNull { (_, instances) ->
+        return events.filter { !it.localDate().isBefore(today) || it.occursOn(today) }
+            .groupBy { it.eventId }.mapNotNull { (_, instances) ->
             val sorted = instances.sortedBy { it.beginMs }
             val sample = sorted.first()
             val kind = kind(sample.rrule, sorted)
@@ -180,17 +199,46 @@ object RecurrenceParser {
             .map { it.trim() }
             .firstOrNull { it.startsWith("$key=", ignoreCase = true) }
             ?.substringAfter('=')
+            ?.uppercase()
             ?.ifBlank { null }
     }
 
     private fun monthDayText(byMonthDay: String?, fallbackDay: Int): String {
-        val raw = byMonthDay?.split(',')?.firstOrNull()?.toIntOrNull()
-        return when {
-            raw == null -> "${fallbackDay}日"
-            raw == -1 -> "最后一天"
-            raw < 0 -> "倒数第${-raw}天"
-            else -> "${raw}日"
+        val days = byMonthDay?.split(',')?.mapNotNull { it.toIntOrNull() }.orEmpty()
+        if (days.isEmpty()) return "${fallbackDay}日"
+        return days.joinToString("、") { raw ->
+            when {
+                raw == -1 -> "最后一天"
+                raw < 0 -> "倒数第${-raw}天"
+                else -> "${raw}日"
+            }
         }
+    }
+
+    private fun ruleDayText(monthDays: String?, weekDays: String?, positions: String?, fallback: Int): String {
+        if (monthDays != null && weekDays != null) return "（按自定义规则）"
+        if (positions != null && weekDays == null) return "（按自定义规则）"
+        if (weekDays == null) return monthDayText(monthDays, fallback)
+        val tokens = weekDays.split(',')
+        val names = tokens.mapNotNull { token ->
+            val name = WEEKDAYS[token.takeLast(2)] ?: return@mapNotNull null
+            val ordinal = token.dropLast(2).toIntOrNull()
+            if (ordinal == null) "周$name" else "${ordinalText(ordinal)}个周$name"
+        }
+        if (names.size != tokens.size) return "（按自定义规则）"
+        if (positions == null) return names.joinToString("、")
+        val pos = positions.split(',').mapNotNull { it.toIntOrNull() }
+        // BYSETPOS across several weekdays selects from their combined set.
+        if (names.size != 1 || pos.isEmpty() || tokens.single().dropLast(2).isNotEmpty()) {
+            return "（按自定义规则）"
+        }
+        return pos.joinToString("、") { "${ordinalText(it)}个${names.single()}" }
+    }
+
+    private fun ordinalText(value: Int): String = when (value) {
+        -1 -> "最后一"
+        1 -> "第一"
+        else -> if (value < 0) "倒数第${-value}" else "第$value"
     }
 
     private fun formatByDay(byDay: String?): String? {

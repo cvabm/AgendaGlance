@@ -10,6 +10,10 @@ import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.Instant
+import java.time.ZoneOffset
+
+class CalendarReadException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 class DeviceCalendar(private val context: Context) {
 
@@ -19,7 +23,7 @@ class DeviceCalendar(private val context: Context) {
     }
 
     fun listCalendars(): List<CalendarInfo> {
-        if (!hasPermission()) return emptyList()
+        if (!hasPermission()) throw SecurityException("缺少日历读取权限")
         val out = mutableListOf<CalendarInfo>()
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
@@ -49,9 +53,9 @@ class DeviceCalendar(private val context: Context) {
                         visible = cursor.intOf(CalendarContract.Calendars.VISIBLE) != 0
                     )
                 }
-            }
-        } catch (_: Exception) {
-            return emptyList()
+            } ?: throw CalendarReadException("日历服务未返回结果")
+        } catch (e: Exception) {
+            throw CalendarReadException("无法读取日历本", e)
         }
         return out.sortedWith(compareByDescending<CalendarInfo> { it.primary }.thenBy { it.displayName() })
     }
@@ -60,12 +64,19 @@ class DeviceCalendar(private val context: Context) {
      * Expands recurring events via CalendarContract.Instances.
      * Range is [fromMs, toMs), typically today → +1 year (covers next year).
      */
-    fun listEvents(fromMs: Long, toMs: Long): List<CalendarEvent> {
-        if (!hasPermission()) return emptyList()
-        val calendars = listCalendars().associateBy { it.id }
+    fun listEvents(fromMs: Long, toMs: Long, knownCalendars: List<CalendarInfo> = listCalendars()): List<CalendarEvent> {
+        if (!hasPermission()) throw SecurityException("缺少日历读取权限")
+        require(toMs > fromMs)
+        val calendars = knownCalendars.associateBy { it.id }
+        val zone = ZoneId.systemDefault()
+        // Include both local-time events and timezone-independent UTC all-day dates.
+        val utcStart = Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate()
+            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val utcEnd = Instant.ofEpochMilli(toMs).atZone(zone).toLocalDate()
+            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
-        ContentUris.appendId(builder, fromMs)
-        ContentUris.appendId(builder, toMs)
+        ContentUris.appendId(builder, minOf(fromMs, utcStart))
+        ContentUris.appendId(builder, maxOf(toMs, utcEnd))
         val projection = arrayOf(
             CalendarContract.Instances._ID,
             CalendarContract.Instances.EVENT_ID,
@@ -97,11 +108,11 @@ class DeviceCalendar(private val context: Context) {
                     val color = cursor.intOf(CalendarContract.Instances.DISPLAY_COLOR).let { c ->
                         if (c != 0) c else info?.color ?: 0
                     }
-                    out += CalendarEvent(
+                    val event = CalendarEvent(
                         instanceId = cursor.longOf(CalendarContract.Instances._ID),
                         eventId = cursor.longOf(CalendarContract.Instances.EVENT_ID),
                         calendarId = calendarId,
-                        calendarName = info?.name?.ifBlank { info.displayName() } ?: "系统日历",
+                        calendarName = info?.titleName() ?: "系统日历",
                         account = info?.account.orEmpty(),
                         title = title,
                         description = cursor.stringOf(CalendarContract.Instances.DESCRIPTION),
@@ -113,10 +124,11 @@ class DeviceCalendar(private val context: Context) {
                         hasAlarm = cursor.intOf(CalendarContract.Instances.HAS_ALARM) == 1,
                         rrule = cursor.stringOf(CalendarContract.Instances.RRULE)
                     )
+                    if (event.overlapsRange(fromMs, toMs, zone)) out += event
                 }
-            }
-        } catch (_: Exception) {
-            return emptyList()
+            } ?: throw CalendarReadException("日历服务未返回结果")
+        } catch (e: Exception) {
+            throw CalendarReadException("无法读取日程", e)
         }
         return out
     }

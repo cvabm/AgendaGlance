@@ -6,4 +6,5 @@ import com.billremind.app.calendar.DeviceCalendar
 class BillRemindApp : Application() {
     val deviceCalendar by lazy { DeviceCalendar(this) }
     val userTags by lazy { UserTags(this) }
+    val calendarFilters by lazy { CalendarFilters(this) }
 }

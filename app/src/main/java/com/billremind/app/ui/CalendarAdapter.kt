@@ -73,15 +73,16 @@ class CalendarAdapter(
             )
             binding.badge.setTextColor(ContextCompat.getColor(binding.root.context, kindFg))
             binding.title.text = series.title
+            binding.details.text = "${series.next.dateTimeLabel()}\n${series.calendarName} · ${series.ruleLabel}"
             binding.days.text = series.daysLabel()
             val days = series.daysUntil()
             val badgeBg = when {
-                days <= 0 -> R.drawable.bg_badge_overdue
+                days < 0 -> R.drawable.bg_badge_overdue
                 days <= 3 -> R.drawable.bg_badge_soon
                 else -> R.drawable.bg_badge_ok
             }
             val badgeFg = when {
-                days <= 0 -> R.color.badge_overdue_fg
+                days < 0 -> R.color.badge_overdue_fg
                 days <= 3 -> R.color.badge_soon_fg
                 else -> R.color.badge_ok_fg
             }

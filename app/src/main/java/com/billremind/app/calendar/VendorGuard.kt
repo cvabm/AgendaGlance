@@ -25,8 +25,12 @@ object VendorGuard {
             val launch = context.packageManager.getLaunchIntentForPackage(pkg)
             if (launch != null) {
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(launch)
-                return true
+                try {
+                    context.startActivity(launch)
+                    return true
+                } catch (_: Exception) {
+                    // A disabled or unavailable vendor app should not stop the fallbacks.
+                }
             }
         }
         val selector = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)

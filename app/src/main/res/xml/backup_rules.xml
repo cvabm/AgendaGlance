@@ -1,2 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<full-backup-content />
+<full-backup-content>
+    <!-- CalendarProvider row IDs belong to this device and cannot be restored elsewhere. -->
+    <exclude domain="sharedpref" path="user_tags.xml" />
+    <exclude domain="sharedpref" path="calendar_filters.xml" />
+    <exclude domain="sharedpref" path="permissions.xml" />
+</full-backup-content>

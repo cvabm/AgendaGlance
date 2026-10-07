@@ -17,8 +17,14 @@ data class CalendarInfo(
     val color: Int,
     val visible: Boolean
 ) {
+    fun titleName(): String = when (name) {
+        "calendar_displayname_xiaomi" -> "小米日历"
+        "calendar_displayname_local" -> "本地日历"
+        else -> name.ifBlank { account.ifBlank { "日历 $id" } }
+    }
+
     fun displayName(): String {
-        val n = name.ifBlank { account.ifBlank { "日历 $id" } }
+        val n = titleName()
         return if (account.isNotBlank() && account != n) "$n（$account）" else n
     }
 }
@@ -61,6 +67,37 @@ data class CalendarEvent(
         }
     }
 
+    /** All-day end dates are exclusive and stored in UTC by CalendarProvider. */
+    fun occursOn(date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): Boolean {
+        if (allDay) {
+            val endDate = Instant.ofEpochMilli(endMs).atZone(ZoneOffset.UTC).toLocalDate()
+            return !localDate(zone).isAfter(date) && date.isBefore(endDate)
+        }
+        val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return beginMs < end && (endMs > start || (endMs == beginMs && beginMs >= start))
+    }
+
+    fun overlapsRange(fromMs: Long, toMs: Long, zone: ZoneId = ZoneId.systemDefault()): Boolean {
+        if (allDay) {
+            val fromDate = Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate()
+            val toDate = Instant.ofEpochMilli(toMs).atZone(zone).toLocalDate()
+            val endDate = Instant.ofEpochMilli(endMs).atZone(ZoneOffset.UTC).toLocalDate()
+            return localDate(zone).isBefore(toDate) && endDate.isAfter(fromDate)
+        }
+        return beginMs < toMs && (endMs > fromMs || (endMs == beginMs && beginMs >= fromMs))
+    }
+
+    fun dateTimeLabel(today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault()): String {
+        val start = localDate(zone)
+        val date = CalendarLabels.upcomingDate(start, today)
+        if (!allDay) return "$date ${timeLabel(zone)}"
+        val last = Instant.ofEpochMilli(endMs).atZone(ZoneOffset.UTC).toLocalDate().minusDays(1)
+        return if (last.isAfter(start)) {
+            "$date–${CalendarLabels.upcomingDate(last, today)} · 全天"
+        } else "$date · 全天"
+    }
+
     companion object {
         private val HM = DateTimeFormatter.ofPattern("HH:mm")
         private val MD_HM = DateTimeFormatter.ofPattern("M月d日 HH:mm")
@@ -69,7 +106,12 @@ data class CalendarEvent(
 
 sealed class CalendarRow {
     data class Section(val kind: RecurrenceKind, val title: String, val count: Int) : CalendarRow()
-    data class Series(val item: EventSeries) : CalendarRow()
+    data class Series(
+        val item: EventSeries,
+        val renderedOn: LocalDate = LocalDate.now(),
+        val zone: ZoneId = ZoneId.systemDefault(),
+        val dayLabel: String = item.daysLabel(renderedOn)
+    ) : CalendarRow()
 }
 
 object CalendarLabels {
