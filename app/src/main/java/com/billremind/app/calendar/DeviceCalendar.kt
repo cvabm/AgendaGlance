@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import java.time.LocalDate
@@ -22,7 +24,7 @@ class DeviceCalendar(private val context: Context) {
             PackageManager.PERMISSION_GRANTED
     }
 
-    fun listCalendars(): List<CalendarInfo> {
+    fun listCalendars(cancellationSignal: CancellationSignal? = null): List<CalendarInfo> {
         if (!hasPermission()) throw SecurityException("缺少日历读取权限")
         val out = mutableListOf<CalendarInfo>()
         val projection = arrayOf(
@@ -40,9 +42,11 @@ class DeviceCalendar(private val context: Context) {
                 projection,
                 null,
                 null,
-                null
+                null,
+                cancellationSignal
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
+                    cancellationSignal?.throwIfCanceled()
                     out += CalendarInfo(
                         id = cursor.longOf(CalendarContract.Calendars._ID),
                         name = cursor.stringOf(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
@@ -54,6 +58,8 @@ class DeviceCalendar(private val context: Context) {
                     )
                 }
             } ?: throw CalendarReadException("日历服务未返回结果")
+        } catch (e: OperationCanceledException) {
+            throw e
         } catch (e: Exception) {
             throw CalendarReadException("无法读取日历本", e)
         }
@@ -64,7 +70,8 @@ class DeviceCalendar(private val context: Context) {
      * Expands recurring events via CalendarContract.Instances.
      * Range is [fromMs, toMs), typically today → +1 year (covers next year).
      */
-    fun listEvents(fromMs: Long, toMs: Long, knownCalendars: List<CalendarInfo> = listCalendars()): List<CalendarEvent> {
+    fun listEvents(fromMs: Long, toMs: Long, knownCalendars: List<CalendarInfo> = listCalendars(),
+                   cancellationSignal: CancellationSignal? = null): List<CalendarEvent> {
         if (!hasPermission()) throw SecurityException("缺少日历读取权限")
         require(toMs > fromMs)
         val calendars = knownCalendars.associateBy { it.id }
@@ -98,9 +105,11 @@ class DeviceCalendar(private val context: Context) {
                 projection,
                 null,
                 null,
-                "${CalendarContract.Instances.BEGIN} ASC"
+                "${CalendarContract.Instances.BEGIN} ASC",
+                cancellationSignal
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
+                    cancellationSignal?.throwIfCanceled()
                     val calendarId = cursor.longOf(CalendarContract.Instances.CALENDAR_ID)
                     val info = calendars[calendarId]
                     if (info != null && !info.visible) continue
@@ -127,6 +136,8 @@ class DeviceCalendar(private val context: Context) {
                     if (event.overlapsRange(fromMs, toMs, zone)) out += event
                 }
             } ?: throw CalendarReadException("日历服务未返回结果")
+        } catch (e: OperationCanceledException) {
+            throw e
         } catch (e: Exception) {
             throw CalendarReadException("无法读取日程", e)
         }

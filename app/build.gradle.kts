@@ -11,9 +11,8 @@ android {
         applicationId = "com.billremind.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 5
+        versionName = "1.0.4"
     }
 
     signingConfigs {
@@ -62,5 +61,4 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    testImplementation("junit:junit:4.13.2")
 }

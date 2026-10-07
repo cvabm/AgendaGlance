@@ -4,10 +4,12 @@
         <exclude domain="sharedpref" path="user_tags.xml" />
         <exclude domain="sharedpref" path="calendar_filters.xml" />
         <exclude domain="sharedpref" path="permissions.xml" />
+        <exclude domain="sharedpref" path="list_state.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="user_tags.xml" />
         <exclude domain="sharedpref" path="calendar_filters.xml" />
         <exclude domain="sharedpref" path="permissions.xml" />
+        <exclude domain="sharedpref" path="list_state.xml" />
     </device-transfer>
 </data-extraction-rules>

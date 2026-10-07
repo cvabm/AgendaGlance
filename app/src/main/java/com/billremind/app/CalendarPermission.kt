@@ -12,8 +12,17 @@ class CalendarPermission(private val activity: AppCompatActivity, private val la
 
     fun wasRequested(): Boolean = prefs.getBoolean("calendar_requested", false)
 
-    fun permanentlyDenied(): Boolean = wasRequested() &&
+    fun permanentlyDenied(): Boolean = prefs.getBoolean("calendar_denied_permanently", false) &&
         !activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_CALENDAR)
+
+    fun onResult(granted: Boolean) {
+        prefs.edit().putBoolean("calendar_denied_permanently", !granted &&
+            !activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_CALENDAR)).apply()
+    }
+
+    fun onGranted() {
+        prefs.edit().remove("calendar_denied_permanently").apply()
+    }
 
     fun request() {
         when {

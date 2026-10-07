@@ -1,7 +1,10 @@
 package com.billremind.app
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.database.ContentObserver
 import android.os.Bundle
 import android.os.Handler
@@ -13,24 +16,25 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.billremind.app.calendar.CalendarInfo
 import com.billremind.app.calendar.CalendarRow
 import com.billremind.app.calendar.DeviceCalendar
 import com.billremind.app.calendar.EventSeries
 import com.billremind.app.calendar.RecurrenceParser
 import com.billremind.app.calendar.VendorGuard
+import com.billremind.app.calendar.cancellableCalendarQuery
 import com.billremind.app.databinding.ActivityMainBinding
 import com.billremind.app.ui.CalendarAdapter
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -46,20 +50,33 @@ class MainActivity : AppCompatActivity() {
     private var loadVersion = 0
     private var loadFailed = false
     private var hasLoaded = false
+    private var providerDirty = true
+    private var loadedOn: LocalDate? = null
+    private var loadedZone: ZoneId? = null
+    private var resumed = false
+    private var restoreScroll = true
+    private val listPrefs by lazy { getSharedPreferences("list_state", MODE_PRIVATE) }
     private val handler = Handler(Looper.getMainLooper())
-    private val refreshFromProvider = Runnable { load() }
+    private val refreshFromProvider = Runnable { if (resumed) load() }
     private var observing = false
     private val observer = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) {
+            providerDirty = true
             handler.removeCallbacks(refreshFromProvider)
-            handler.postDelayed(refreshFromProvider, 300)
+            if (resumed) handler.postDelayed(refreshFromProvider, 300)
+        }
+    }
+    private val clockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (resumed) refreshClock()
         }
     }
     private val adapter = CalendarAdapter(::openSeries, ::toggleSubscription)
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        permission.onResult(it)
         if (it) load() else render()
     }
-    private val permission by lazy {
+    private val permission: CalendarPermission by lazy {
         CalendarPermission(this) { calendarPermission.launch(Manifest.permission.READ_CALENDAR) }
     }
 
@@ -68,18 +85,32 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
-        filterKind = savedInstanceState?.getString(KEY_FILTER) ?: FILTER_LIFE
+        filterKind = savedInstanceState?.getString(KEY_FILTER) ?: listPrefs.getString(KEY_FILTER, FILTER_LIFE)!!
         binding.list.layoutManager = LinearLayoutManager(this)
+        binding.list.isSaveEnabled = false
         binding.list.adapter = adapter
+        binding.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) saveScroll()
+            }
+        })
         binding.refresh.setOnRefreshListener { load() }
         binding.fab.setOnClickListener { onFab() }
         binding.loadError.setOnClickListener { load() }
         binding.filters.setOnCheckedStateChangeListener { _, checkedIds ->
             if (updatingChips) return@setOnCheckedStateChangeListener
+            saveScroll()
             filterKind = if (checkedIds.firstOrNull() == binding.subscriptionFilter.id) FILTER_SUBSCRIPTION else FILTER_LIFE
+            listPrefs.edit().putString(KEY_FILTER, filterKind).apply()
+            restoreScroll = true
             render()
         }
         syncCheckedFilters()
+        ContextCompat.registerReceiver(this, clockReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_DATE_CHANGED)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (!app.deviceCalendar.hasPermission() && !permission.wasRequested() && savedInstanceState == null) permission.request()
     }
 
@@ -92,43 +123,64 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        saveScroll()
         outState.putString(KEY_FILTER, filterKind)
         super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {
         super.onResume()
-        load()
-        dateJob?.cancel()
-        dateJob = lifecycleScope.launch {
-            var today = LocalDate.now()
-            var zone = ZoneId.systemDefault()
-            while (isActive) {
-                delay(30_000)
-                val newToday = LocalDate.now()
-                val newZone = ZoneId.systemDefault()
-                if (newToday != today || newZone != zone) {
-                    today = newToday
-                    zone = newZone
-                    load()
-                } else render()
-            }
-        }
+        resumed = true
+        if (app.deviceCalendar.hasPermission()) permission.onGranted()
+        refreshClock()
     }
 
     override fun onPause() {
+        saveScroll()
+        resumed = false
         dateJob?.cancel()
         super.onPause()
     }
 
     override fun onStop() {
+        handler.removeCallbacks(refreshFromProvider)
+        if (loadJob?.isActive == true) {
+            providerDirty = true
+            ++loadVersion
+            loadJob?.cancel()
+            binding.refresh.isRefreshing = false
+        }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
         if (observing) {
             contentResolver.unregisterContentObserver(observer)
             observing = false
         }
         handler.removeCallbacks(refreshFromProvider)
-        loadJob?.cancel()
-        super.onStop()
+        unregisterReceiver(clockReceiver)
+        super.onDestroy()
+    }
+
+    private fun refreshClock() {
+        if (!app.deviceCalendar.hasPermission() || !hasLoaded || providerDirty ||
+            loadedOn != LocalDate.now() || loadedZone != ZoneId.systemDefault()) load() else render()
+    }
+
+    private fun scheduleStatusRefresh() {
+        dateJob?.cancel()
+        if (!resumed || !app.deviceCalendar.hasPermission()) return
+        val now = System.currentTimeMillis()
+        val today = LocalDate.now()
+        val midnight = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val nextEnd = series.asSequence().map { it.next }
+            .filter { !it.allDay && it.localDate().isBefore(today) && it.occursOn(today) && it.endMs > now }
+            .minOfOrNull { it.endMs } ?: midnight
+        dateJob = lifecycleScope.launch {
+            delay((minOf(midnight, nextEnd) - now).coerceAtLeast(1))
+            refreshClock()
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -146,6 +198,7 @@ class MainActivity : AppCompatActivity() {
     private fun load() {
         val version = ++loadVersion
         loadJob?.cancel()
+        providerDirty = false
         if (!app.deviceCalendar.hasPermission()) {
             calendars = emptyList()
             series = emptyList()
@@ -165,16 +218,17 @@ class MainActivity : AppCompatActivity() {
         }
         binding.refresh.isRefreshing = true
         render()
+        val today = LocalDate.now()
+        val zone = ZoneId.systemDefault()
         loadJob = lifecycleScope.launch {
             try {
-                val loaded = withContext(Dispatchers.IO) {
-                    val cals = app.deviceCalendar.listCalendars()
-                    val today = LocalDate.now()
-                    val zone = ZoneId.systemDefault()
+                val loaded = cancellableCalendarQuery { signal ->
+                    val cals = app.deviceCalendar.listCalendars(signal)
                     val items = app.deviceCalendar.listEvents(
                         today.atStartOfDay(zone).toInstant().toEpochMilli(),
-                        today.plusDays(DeviceCalendar.RANGE_DAYS).atStartOfDay(zone).toInstant().toEpochMilli(), cals
+                        today.plusDays(DeviceCalendar.RANGE_DAYS).atStartOfDay(zone).toInstant().toEpochMilli(), cals, signal
                     )
+                    signal.throwIfCanceled()
                     cals.filter { it.visible } to RecurrenceParser.group(items, DeviceCalendar.ONCE_DAYS, today)
                 }
                 if (version != loadVersion) return@launch
@@ -183,11 +237,16 @@ class MainActivity : AppCompatActivity() {
                 val subscribed = app.userTags.subscriptionIds()
                 series = loaded.second.map { it.copy(subscribed = it.eventId in subscribed) }
                 hasLoaded = true
+                loadedOn = today
+                loadedZone = zone
                 loadFailed = false
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                if (version == loadVersion) loadFailed = true
+                if (version == loadVersion) {
+                    loadFailed = true
+                    providerDirty = true
+                }
             } finally {
                 if (version == loadVersion) {
                     binding.refresh.isRefreshing = false
@@ -204,6 +263,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun render() {
+        scheduleStatusRefresh()
         val granted = app.deviceCalendar.hasPermission()
         binding.filters.visibility = if (granted) View.VISIBLE else View.GONE
         binding.loadError.visibility = if (granted && loadFailed) View.VISIBLE else View.GONE
@@ -231,12 +291,25 @@ class MainActivity : AppCompatActivity() {
         todayItems.firstOrNull()?.let { first ->
             binding.summaryTitle.text = "今天 ${todayItems.size} 件"
             binding.summaryAmount.text = first.title
-            binding.summaryHint.text = "${first.next.dateTimeLabel(today)} · ${first.ruleLabel}" +
+            binding.summaryHint.text = first.next.dateTimeLabel(today) +
+                (if (first.next.recurring) " · ${first.ruleLabel}" else "") +
                 if (todayItems.size > 1) " · 另外 ${todayItems.size - 1} 件" else ""
         }
         val rows = filtered.sortedWith(compareBy<EventSeries> { it.next.beginMs }.thenBy { it.title })
             .map { CalendarRow.Series(it) }
-        adapter.submitList(rows)
+        val renderedFilter = filterKind
+        adapter.submitList(rows) {
+            if (restoreScroll && hasLoaded && renderedFilter == filterKind) {
+                val eventId = listPrefs.getLong("${filterKind}_event", -1)
+                val savedIndex = listPrefs.getInt("${filterKind}_index", 0)
+                val index = rows.indexOfFirst { it.item.eventId == eventId }.takeIf { it >= 0 } ?: savedIndex
+                (binding.list.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(
+                    index.coerceIn(0, (rows.size - 1).coerceAtLeast(0)),
+                    listPrefs.getInt("${filterKind}_offset", 0)
+                )
+                restoreScroll = false
+            }
+        }
         binding.list.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
         binding.empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
         if (rows.isEmpty()) {
@@ -288,10 +361,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun toggleSubscription(item: EventSeries) {
         val subscribed = !item.subscribed
-        app.userTags.setSubscribed(item.eventId, subscribed)
-        series = series.map { if (it.eventId == item.eventId) it.copy(subscribed = subscribed) else it }
+        setSubscribed(item.eventId, subscribed)
+        Snackbar.make(binding.root, if (subscribed) "已加入订阅" else "已移出订阅", Snackbar.LENGTH_LONG)
+            .setAnchorView(binding.fab)
+            .setAction("撤销") { setSubscribed(item.eventId, item.subscribed) }
+            .show()
+    }
+
+    private fun setSubscribed(eventId: Long, subscribed: Boolean) {
+        app.userTags.setSubscribed(eventId, subscribed)
+        series = series.map { if (it.eventId == eventId) it.copy(subscribed = subscribed) else it }
         render()
-        Toast.makeText(this, if (subscribed) "已加入订阅" else "已移出订阅", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun saveScroll() {
+        if (restoreScroll || !hasLoaded) return
+        val manager = binding.list.layoutManager as LinearLayoutManager
+        val index = manager.findFirstVisibleItemPosition()
+        val row = adapter.currentList.getOrNull(index) as? CalendarRow.Series ?: return
+        if (row.item.subscribed != (filterKind == FILTER_SUBSCRIPTION)) return
+        val offset = (manager.findViewByPosition(index)?.top ?: 0) - binding.list.paddingTop
+        listPrefs.edit().putLong("${filterKind}_event", row.item.eventId)
+            .putInt("${filterKind}_index", index).putInt("${filterKind}_offset", offset).apply()
     }
 
     private fun openSeries(series: EventSeries) {

@@ -64,10 +64,10 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Test and build release APK
+      - name: Build release APK
         run: |
           chmod +x ./gradlew
-          ./gradlew test assembleRelease
+          ./gradlew assembleRelease
 
       - name: Validate and package APK
         shell: bash

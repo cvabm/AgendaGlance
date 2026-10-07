@@ -15,7 +15,7 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             app:title="@string/app_name" />
 
         <HorizontalScrollView
@@ -24,13 +24,15 @@
             android:clipToPadding="false"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
-            android:scrollbars="none">
+            android:scrollbars="none"
+            android:paddingBottom="4dp">
 
             <com.google.android.material.chip.ChipGroup
                 android:id="@+id/filters"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 app:selectionRequired="true"
+                app:chipSpacingHorizontal="10dp"
                 app:singleLine="true"
                 app:singleSelection="true">
 
@@ -40,14 +42,16 @@
                     android:layout_height="wrap_content"
                     android:checkable="true"
                     android:checked="true"
-                    android:text="生活 0" />
+                    android:text="生活 0"
+                    app:chipCornerRadius="12dp" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/subscriptionFilter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checkable="true"
-                    android:text="订阅 0" />
+                    android:text="订阅 0"
+                    app:chipCornerRadius="12dp" />
             </com.google.android.material.chip.ChipGroup>
         </HorizontalScrollView>
 

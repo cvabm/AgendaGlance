@@ -1,6 +1,5 @@
 package com.billremind.app.ui
 
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -48,7 +47,7 @@ class CalendarAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val row = getItem(position)) {
             is CalendarRow.Section -> (holder as HeaderHolder).bind(row)
-            is CalendarRow.Series -> (holder as EventHolder).bind(row.item, onClick, onLongClick)
+            is CalendarRow.Series -> (holder as EventHolder).bind(row, onClick, onLongClick)
         }
     }
 
@@ -60,22 +59,17 @@ class CalendarAdapter(
 
     class EventHolder(private val binding: ItemEventBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(
-            series: EventSeries,
+            row: CalendarRow.Series,
             onClick: (EventSeries) -> Unit,
             onLongClick: (EventSeries) -> Unit
         ) {
+            val series = row.item
             val color = if (series.color != 0) series.color else Color.parseColor("#0F6B63")
             binding.colorBar.setBackgroundColor(color or 0xFF000000.toInt())
-            val (kindBg, kindFg) = categoryColors(series.subscribed)
-            binding.badge.text = series.categoryLabel()
-            binding.badge.backgroundTintList = ColorStateList.valueOf(
-                ContextCompat.getColor(binding.root.context, kindBg)
-            )
-            binding.badge.setTextColor(ContextCompat.getColor(binding.root.context, kindFg))
             binding.title.text = series.title
-            binding.details.text = "${series.next.dateTimeLabel()}\n${series.calendarName} · ${series.ruleLabel}"
-            binding.days.text = series.daysLabel()
-            val days = series.daysUntil()
+            binding.dateTime.text = series.next.dateTimeLabel(row.renderedOn, row.zone)
+            binding.days.text = row.dayLabel
+            val days = series.daysUntil(row.renderedOn)
             val badgeBg = when {
                 days < 0 -> R.drawable.bg_badge_overdue
                 days <= 3 -> R.drawable.bg_badge_soon
@@ -100,11 +94,5 @@ class CalendarAdapter(
         private const val TYPE_HEADER = 1
         private const val TYPE_EVENT = 2
 
-        private fun categoryColors(subscribed: Boolean): Pair<Int, Int> =
-            if (subscribed) {
-                R.color.kind_subscription_bg to R.color.kind_subscription_fg
-            } else {
-                R.color.kind_life_bg to R.color.kind_life_fg
-            }
     }
 }
