@@ -56,8 +56,52 @@ data class EventSeries(
             1 -> "明天"
             else -> when {
                 d < 0 -> "已过"
-                date.year > today.year -> "明年"
+                date.year == today.year + 1 -> "明年"
+                date.year == today.year + 2 -> "后年"
+                date.year > today.year -> "${date.year - today.year}年后"
                 else -> "${d}天后"
+            }
+        }
+    }
+
+    fun daysBadge(today: LocalDate = LocalDate.now(), nowMs: Long = System.currentTimeMillis()): DaysBadge {
+        val date = next.localDate()
+        if (date.isBefore(today) && next.occursOn(today)) {
+            return if (next.allDay || next.endMs > nowMs) DaysBadge.TODAY else DaysBadge.OVERDUE
+        }
+        val d = daysUntil(today)
+        return when {
+            d < 0 -> DaysBadge.OVERDUE
+            d == 0 -> DaysBadge.TODAY
+            d <= 3 -> DaysBadge.SOON
+            date.year == today.year + 1 -> DaysBadge.NEXT_YEAR
+            date.year == today.year + 2 -> DaysBadge.YEAR_AFTER
+            date.year > today.year -> DaysBadge.LATER
+            else -> DaysBadge.THIS_YEAR
+        }
+    }
+}
+
+enum class DaysBadge {
+    OVERDUE,
+    TODAY,
+    SOON,
+    THIS_YEAR,
+    NEXT_YEAR,
+    YEAR_AFTER,
+    LATER;
+
+    companion object {
+        fun of(date: LocalDate, today: LocalDate = LocalDate.now()): DaysBadge {
+            val days = ChronoUnit.DAYS.between(today, date).toInt()
+            return when {
+                days < 0 -> OVERDUE
+                days == 0 -> TODAY
+                days <= 3 -> SOON
+                date.year == today.year + 1 -> NEXT_YEAR
+                date.year == today.year + 2 -> YEAR_AFTER
+                date.year > today.year -> LATER
+                else -> THIS_YEAR
             }
         }
     }
@@ -146,7 +190,7 @@ object RecurrenceParser {
 
     fun group(
         events: List<CalendarEvent>,
-        onceWithinDays: Long = 366,
+        onceWithinDays: Long = DeviceCalendar.ONCE_DAYS,
         today: LocalDate = LocalDate.now()
     ): List<EventSeries> {
         return events.filter { !it.localDate().isBefore(today) || it.occursOn(today) }

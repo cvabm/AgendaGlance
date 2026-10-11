@@ -27,12 +27,23 @@
     <color name="type_gas">#C2410C</color>
     <color name="type_other">#475569</color>
 
-    <color name="badge_overdue_bg">#FEE4E2</color>
-    <color name="badge_overdue_fg">#B42318</color>
-    <color name="badge_soon_bg">#FEF0C7</color>
-    <color name="badge_soon_fg">#B54708</color>
-    <color name="badge_ok_bg">#D1FADF</color>
-    <color name="badge_ok_fg">#067647</color>
+    <color name="badge_overdue_bg">#F3E3DC</color>
+    <color name="badge_overdue_fg">#8C4A38</color>
+    <color name="badge_today_bg">#F6B15A</color>
+    <color name="badge_today_fg">#7C3208</color>
+    <color name="badge_soon_bg">#F0B3D4</color>
+    <color name="badge_soon_fg">#7A2458</color>
+    <color name="badge_ok_bg">#A8C4E8</color>
+    <color name="badge_ok_fg">#1A3F73</color>
+    <color name="tab_selected_bg">#E6D9C4</color>
+    <color name="summary_bg">#D36F12</color>
+    <color name="summary_fg">#FFF8F1</color>
+    <color name="badge_next_year_bg">#C5D8F0</color>
+    <color name="badge_next_year_fg">#3A5A88</color>
+    <color name="badge_year_after_bg">#D8E6F5</color>
+    <color name="badge_year_after_fg">#5A78A0</color>
+    <color name="badge_later_bg">#E8F0F8</color>
+    <color name="badge_later_fg">#7A94B0</color>
 
     <color name="kind_monthly_bg">#D1FADF</color>
     <color name="kind_monthly_fg">#067647</color>

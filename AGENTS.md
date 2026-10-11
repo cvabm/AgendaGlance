@@ -11,10 +11,10 @@
 ## 发布
 
 - `.github/workflows/android-ci.yml` 是普通 CI，只构建、做轻量静态检查并上传 artifact，不创建 GitHub Release，不运行自动化测试。
-- `.github/workflows/release.yml` 负责正式发布。用户说“触发 release”时，先核对版本、已有 tag / Release 和正在运行的任务，再手动运行 Release workflow；不能误触发普通 CI 当作发布。
-- Release workflow 支持 `workflow_dispatch`，也支持推送 `v*` tag。手动运行会从 `app/build.gradle.kts` 推导 tag，`versionName = "1.0"` 对应 `v1.0.0`；三段版本直接加 v 前缀。
-- 发布新版本前递增 `versionName` 和 `versionCode`，确保 Android 可以覆盖升级。不能只改 Git tag，不更新 APK 内版本。
-- 默认手动触发 `main` 上的 Release workflow，不提前创建 tag；GitHub Release action 会为通过验证的提交创建 tag。不要覆盖既有 tag 或 Release。
+- 在本机运行应用时直接 `./gradlew :app:installRelease` 覆盖安装，再启动 `com.billremind.app/.MainActivity`。不用 debug 安装。
+- 用户要求运行时：有未提交改动就提交并推送 `main`。当前 `versionName` 对应的 tag 已存在时，先同时递增 `versionName` 和 `versionCode`，再打 tag。没有新改动时不空提交、不重复打 tag。
+- tag 与应用版本一致：`versionName = "1.0.5"` 对应 `v1.0.5`；两段版本补成 `v1.0.0`。推送 `v*` tag 会触发 Release workflow。不要覆盖既有 tag 或 Release，也不能只改 Git tag 而不更新 APK 内版本。
+- `.github/workflows/release.yml` 负责正式发布。用户说“触发 release”时，先核对版本、已有 tag / Release 和正在运行的任务；不能误触发普通 CI 当作发布。
 - release APK 构建、签名/包名/版本校验、SHA256 文件与附件上传均由 Actions 完成；不手动上传本地 APK。
 - 以 Actions 最终成功、Release 及 APK / SHA256 附件就绪为完成，不把“已触发”当作“已发布”。
 

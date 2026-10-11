@@ -213,7 +213,7 @@ class DeviceCalendar(private val context: Context) {
     }
 
     companion object {
-        const val RANGE_DAYS = 366L
+        const val RANGE_DAYS = 366L * 5
         const val ONCE_DAYS = RANGE_DAYS
 
         fun rangeStartMs(zone: ZoneId = ZoneId.systemDefault()): Long =

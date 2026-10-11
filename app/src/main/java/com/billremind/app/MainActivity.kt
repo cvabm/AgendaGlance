@@ -1,6 +1,7 @@
 package com.billremind.app
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,6 +14,7 @@ import android.provider.CalendarContract
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -20,7 +22,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager.widget.PagerAdapter
+import androidx.viewpager.widget.ViewPager
 import com.billremind.app.calendar.CalendarInfo
+import com.billremind.app.calendar.CalendarLabels
 import com.billremind.app.calendar.CalendarRow
 import com.billremind.app.calendar.DeviceCalendar
 import com.billremind.app.calendar.EventSeries
@@ -28,8 +33,8 @@ import com.billremind.app.calendar.RecurrenceParser
 import com.billremind.app.calendar.VendorGuard
 import com.billremind.app.calendar.cancellableCalendarQuery
 import com.billremind.app.databinding.ActivityMainBinding
+import com.billremind.app.databinding.CategoryPageBinding
 import com.billremind.app.ui.CalendarAdapter
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -44,7 +49,6 @@ class MainActivity : AppCompatActivity() {
     private var calendars: List<CalendarInfo> = emptyList()
     private var series: List<EventSeries> = emptyList()
     private var filterKind = FILTER_LIFE
-    private var updatingChips = false
     private var loadJob: Job? = null
     private var dateJob: Job? = null
     private var loadVersion = 0
@@ -54,7 +58,10 @@ class MainActivity : AppCompatActivity() {
     private var loadedOn: LocalDate? = null
     private var loadedZone: ZoneId? = null
     private var resumed = false
-    private var restoreScroll = true
+    private class CategoryPage(val kind: String, val binding: CategoryPageBinding, val adapter: CalendarAdapter) {
+        var restoreScroll = true
+    }
+    private lateinit var pages: List<CategoryPage>
     private val listPrefs by lazy { getSharedPreferences("list_state", MODE_PRIVATE) }
     private val handler = Handler(Looper.getMainLooper())
     private val refreshFromProvider = Runnable { if (resumed) load() }
@@ -71,7 +78,6 @@ class MainActivity : AppCompatActivity() {
             if (resumed) refreshClock()
         }
     }
-    private val adapter = CalendarAdapter(::openSeries, ::toggleSubscription)
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         permission.onResult(it)
         if (it) load() else render()
@@ -86,25 +92,52 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
         filterKind = savedInstanceState?.getString(KEY_FILTER) ?: listPrefs.getString(KEY_FILTER, FILTER_LIFE)!!
-        binding.list.layoutManager = LinearLayoutManager(this)
-        binding.list.isSaveEnabled = false
-        binding.list.adapter = adapter
-        binding.list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) saveScroll()
+        pages = listOf(FILTER_LIFE, FILTER_SUBSCRIPTION).map { kind ->
+            val page = CategoryPage(kind, CategoryPageBinding.inflate(layoutInflater), CalendarAdapter(::openSeries, ::toggleSubscription))
+            page.binding.list.apply {
+                layoutManager = LinearLayoutManager(this@MainActivity)
+                isSaveEnabled = false
+                adapter = page.adapter
+                itemAnimator = null
+                addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                    override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                        if (newState == RecyclerView.SCROLL_STATE_IDLE) saveScroll(page)
+                    }
+                })
+            }
+            page.binding.refresh.setOnRefreshListener { load() }
+            page.binding.refresh.setOnChildScrollUpCallback { _, _ ->
+                val list = page.binding.list
+                list.visibility == View.VISIBLE && list.canScrollVertically(-1)
+            }
+            page.binding.permissionAction.setOnClickListener { permission.request() }
+            page
+        }
+        binding.categoryContent.isSaveEnabled = false
+        binding.categoryContent.adapter = object : PagerAdapter() {
+            override fun getCount() = pages.size
+            override fun isViewFromObject(view: View, item: Any) = view === item
+            override fun instantiateItem(container: ViewGroup, position: Int): Any =
+                pages[position].binding.root.also { container.addView(it) }
+            override fun destroyItem(container: ViewGroup, position: Int, item: Any) { container.removeView(item as View) }
+            override fun getPageTitle(position: Int) = if (position == 0) "生活" else "订阅"
+        }
+        binding.categoryContent.offscreenPageLimit = 1
+        binding.categoryContent.addOnPageChangeListener(object : ViewPager.SimpleOnPageChangeListener() {
+            override fun onPageSelected(position: Int) {
+                filterKind = pages[position].kind
+                listPrefs.edit().putString(KEY_FILTER, filterKind).apply()
+                syncCheckedFilters()
+            }
+            override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {
+                binding.filters.setProgress(position + positionOffset)
             }
         })
-        binding.refresh.setOnRefreshListener { load() }
-        binding.fab.setOnClickListener { onFab() }
+        binding.categoryContent.setCurrentItem(if (filterKind == FILTER_SUBSCRIPTION) 1 else 0, false)
+        binding.filters.setProgress(if (filterKind == FILTER_SUBSCRIPTION) 1f else 0f)
         binding.loadError.setOnClickListener { load() }
-        binding.filters.setOnCheckedStateChangeListener { _, checkedIds ->
-            if (updatingChips) return@setOnCheckedStateChangeListener
-            saveScroll()
-            filterKind = if (checkedIds.firstOrNull() == binding.subscriptionFilter.id) FILTER_SUBSCRIPTION else FILTER_LIFE
-            listPrefs.edit().putString(KEY_FILTER, filterKind).apply()
-            restoreScroll = true
-            render()
-        }
+        binding.lifeFilter.setOnClickListener { selectFilter(FILTER_LIFE) }
+        binding.subscriptionFilter.setOnClickListener { selectFilter(FILTER_SUBSCRIPTION) }
         syncCheckedFilters()
         ContextCompat.registerReceiver(this, clockReceiver, IntentFilter().apply {
             addAction(Intent.ACTION_DATE_CHANGED)
@@ -115,10 +148,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        updatingChips = true
         super.onRestoreInstanceState(savedInstanceState)
-        updatingChips = false
         filterKind = savedInstanceState.getString(KEY_FILTER) ?: FILTER_LIFE
+        binding.categoryContent.setCurrentItem(if (filterKind == FILTER_SUBSCRIPTION) 1 else 0, false)
         syncCheckedFilters()
     }
 
@@ -148,7 +180,7 @@ class MainActivity : AppCompatActivity() {
             providerDirty = true
             ++loadVersion
             loadJob?.cancel()
-            binding.refresh.isRefreshing = false
+            pages.forEach { it.binding.refresh.isRefreshing = false }
         }
         super.onStop()
     }
@@ -188,10 +220,17 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_open_calendar)?.title = when {
+            app.deviceCalendar.hasPermission() -> "打开系统日历"
+            permission.permanentlyDenied() -> "打开权限设置"
+            else -> "授予日历权限"
+        }
+        return super.onPrepareOptionsMenu(menu)
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_refresh -> { load(); true }
-        R.id.action_calendars -> { showCalendarFilter(); true }
-        R.id.action_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
+        R.id.action_open_calendar -> { openCalendar(); true }
         else -> super.onOptionsItemSelected(item)
     }
 
@@ -204,7 +243,7 @@ class MainActivity : AppCompatActivity() {
             series = emptyList()
             hasLoaded = false
             loadFailed = false
-            binding.refresh.isRefreshing = false
+            pages.forEach { it.binding.refresh.isRefreshing = false }
             render()
             return
         }
@@ -216,7 +255,7 @@ class MainActivity : AppCompatActivity() {
                 // Queries still check permission and report their own failure state.
             }
         }
-        binding.refresh.isRefreshing = true
+        pages.forEach { it.binding.refresh.isRefreshing = it.kind == filterKind }
         render()
         val today = LocalDate.now()
         val zone = ZoneId.systemDefault()
@@ -249,7 +288,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } finally {
                 if (version == loadVersion) {
-                    binding.refresh.isRefreshing = false
+                    pages.forEach { it.binding.refresh.isRefreshing = false }
                     render()
                 }
             }
@@ -257,57 +296,65 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncCheckedFilters() {
-        updatingChips = true
-        binding.filters.check(if (filterKind == FILTER_SUBSCRIPTION) binding.subscriptionFilter.id else binding.lifeFilter.id)
-        updatingChips = false
+        binding.lifeFilter.isChecked = filterKind == FILTER_LIFE
+        binding.subscriptionFilter.isChecked = filterKind == FILTER_SUBSCRIPTION
+    }
+
+    private fun selectFilter(kind: String) {
+        binding.categoryContent.setCurrentItem(if (kind == FILTER_SUBSCRIPTION) 1 else 0, ValueAnimator.areAnimatorsEnabled())
+        syncCheckedFilters()
     }
 
     private fun render() {
+        saveScroll()
         scheduleStatusRefresh()
         val granted = app.deviceCalendar.hasPermission()
+        binding.categoryContent.swipeEnabled = granted
         binding.filters.visibility = if (granted) View.VISIBLE else View.GONE
         binding.loadError.visibility = if (granted && loadFailed) View.VISIBLE else View.GONE
         binding.loadError.text = if (hasLoaded) "读取失败，暂时显示上次结果 · 点此重试" else "日历读取失败 · 点此重试"
-        if (!granted) {
-            adapter.submitList(emptyList())
-            binding.list.visibility = View.GONE
-            binding.empty.visibility = View.VISIBLE
-            binding.emptyTitle.text = "需要日历权限"
-            binding.emptyHint.text = "只读取系统日历里已有的日程，不修改日历。"
-            binding.fab.text = if (permission.permanentlyDenied()) "打开权限设置" else "授予权限"
-            binding.summaryCard.visibility = View.GONE
-            return
-        }
-        binding.fab.text = "打开系统日历"
+        invalidateOptionsMenu()
         val ids = app.calendarFilters.selectedIds()
         val selected = series.filter { ids == null || it.calendarId in ids }
         binding.lifeFilter.text = "生活 ${selected.count { !it.subscribed }}"
         binding.subscriptionFilter.text = "订阅 ${selected.count { it.subscribed }}"
         syncCheckedFilters()
-        val filtered = selected.filter { if (filterKind == FILTER_SUBSCRIPTION) it.subscribed else !it.subscribed }
-        val today = LocalDate.now()
-        val todayItems = filtered.filter { it.next.occursOn(today) }.sortedBy { it.next.beginMs }
-        binding.summaryCard.visibility = if (todayItems.isEmpty()) View.GONE else View.VISIBLE
-        todayItems.firstOrNull()?.let { first ->
-            binding.summaryTitle.text = "今天 ${todayItems.size} 件"
-            binding.summaryAmount.text = first.title
-            binding.summaryHint.text = first.next.dateTimeLabel(today) +
-                (if (first.next.recurring) " · ${first.ruleLabel}" else "") +
-                if (todayItems.size > 1) " · 另外 ${todayItems.size - 1} 件" else ""
+        pages.forEach { renderPage(it, selected, ids, granted) }
+    }
+
+    private fun renderPage(page: CategoryPage, selected: List<EventSeries>, ids: Set<Long>?, granted: Boolean) {
+        val binding = page.binding
+        binding.permissionAction.visibility = if (granted) View.GONE else View.VISIBLE
+        if (!granted) {
+            binding.permissionAction.text = if (permission.permanentlyDenied()) "打开权限设置" else "授予权限"
+            page.adapter.submitList(emptyList())
+            page.restoreScroll = true
+            binding.list.visibility = View.GONE
+            binding.empty.visibility = View.VISIBLE
+            binding.emptyTitle.text = "需要日历权限"
+            binding.emptyHint.text = "只读取系统日历里已有的日程，不修改日历。"
+            return
         }
-        val rows = filtered.sortedWith(compareBy<EventSeries> { it.next.beginMs }.thenBy { it.title })
-            .map { CalendarRow.Series(it) }
-        val renderedFilter = filterKind
-        adapter.submitList(rows) {
-            if (restoreScroll && hasLoaded && renderedFilter == filterKind) {
-                val eventId = listPrefs.getLong("${filterKind}_event", -1)
-                val savedIndex = listPrefs.getInt("${filterKind}_index", 0)
-                val index = rows.indexOfFirst { it.item.eventId == eventId }.takeIf { it >= 0 } ?: savedIndex
+        val filtered = selected.filter { if (page.kind == FILTER_SUBSCRIPTION) it.subscribed else !it.subscribed }
+        val today = LocalDate.now()
+        val rows = rowsFor(filtered, today)
+        page.adapter.submitList(rows) {
+            if (page.restoreScroll && hasLoaded) {
+                val eventId = listPrefs.getLong("${page.kind}_event", -1)
+                val savedIndex = listPrefs.getInt("${page.kind}_index", 0)
+                val index = rows.indexOfFirst { row ->
+                    when (row) {
+                        is CalendarRow.Series -> row.item.eventId == eventId
+                        is CalendarRow.DayGroup -> row.items.any { it.eventId == eventId }
+                        else -> false
+                    }
+                }
+                    .takeIf { it >= 0 } ?: savedIndex
                 (binding.list.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(
                     index.coerceIn(0, (rows.size - 1).coerceAtLeast(0)),
-                    listPrefs.getInt("${filterKind}_offset", 0)
+                    listPrefs.getInt("${page.kind}_offset", 0)
                 )
-                restoreScroll = false
+                page.restoreScroll = false
             }
         }
         binding.list.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
@@ -318,43 +365,21 @@ class MainActivity : AppCompatActivity() {
                 !hasLoaded -> "正在读取日历"
                 calendars.isEmpty() -> "没有可见的系统日历"
                 ids != null && ids.none { id -> calendars.any { it.id == id } } -> "未选择可见日历本"
-                filterKind == FILTER_SUBSCRIPTION -> "还没有订阅"
+                page.kind == FILTER_SUBSCRIPTION -> "还没有订阅"
                 else -> "没有生活日程"
             }
             binding.emptyHint.text = when {
-                loadFailed -> "请点击上方提示或刷新按钮重试。"
-                !hasLoaded -> "正在加载未来一年的日程。"
+                loadFailed -> "请点击上方提示或下拉重试。"
+                !hasLoaded -> "正在加载未来五年的日程。"
                 calendars.isEmpty() -> "请先打开系统日历，确认日历本可见后再刷新。"
-                ids != null -> "可以在右上角菜单中调整日历本筛选。"
-                filterKind == FILTER_SUBSCRIPTION -> "长按生活日程，把它加入订阅。"
-                else -> "未来一年内未加入订阅的日程会放在这里。"
+                ids != null -> "当前日历本筛选下没有日程。"
+                page.kind == FILTER_SUBSCRIPTION -> "长按生活日程，把它加入订阅。"
+                else -> "未来五年内未加入订阅的日程会放在这里。"
             }
         }
     }
 
-    private fun showCalendarFilter() {
-        if (!app.deviceCalendar.hasPermission()) { permission.request(); return }
-        if (calendars.isEmpty()) {
-            Toast.makeText(this, if (loadFailed) "请先重试读取日历" else "尚无可见的日历本", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val options = calendars.toList()
-        val current = app.calendarFilters.selectedIds()
-        val checked = BooleanArray(options.size) { current == null || options[it].id in current }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("筛选日历本")
-            .setMultiChoiceItems(options.map { it.displayName() }.toTypedArray(), checked) { _, which, enabled -> checked[which] = enabled }
-            .setPositiveButton("确定") { _, _ ->
-                val ids = options.filterIndexed { index, _ -> checked[index] }.map { it.id }.toSet()
-                app.calendarFilters.select(if (checked.all { it }) null else ids)
-                render()
-            }
-            .setNeutralButton("全部日历") { _, _ -> app.calendarFilters.select(null); render() }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun onFab() {
+    private fun openCalendar() {
         if (!app.deviceCalendar.hasPermission()) { permission.request(); return }
         if (!VendorGuard.openSystemCalendar(this)) Toast.makeText(this, "没有找到系统日历", Toast.LENGTH_SHORT).show()
     }
@@ -363,7 +388,6 @@ class MainActivity : AppCompatActivity() {
         val subscribed = !item.subscribed
         setSubscribed(item.eventId, subscribed)
         Snackbar.make(binding.root, if (subscribed) "已加入订阅" else "已移出订阅", Snackbar.LENGTH_LONG)
-            .setAnchorView(binding.fab)
             .setAction("撤销") { setSubscribed(item.eventId, item.subscribed) }
             .show()
     }
@@ -375,18 +399,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveScroll() {
-        if (restoreScroll || !hasLoaded) return
+        pages.forEach { saveScroll(it) }
+    }
+
+    private fun saveScroll(page: CategoryPage) {
+        if (page.restoreScroll || !hasLoaded) return
+        val binding = page.binding
         val manager = binding.list.layoutManager as LinearLayoutManager
-        val index = manager.findFirstVisibleItemPosition()
-        val row = adapter.currentList.getOrNull(index) as? CalendarRow.Series ?: return
-        if (row.item.subscribed != (filterKind == FILTER_SUBSCRIPTION)) return
+        val shown = page.adapter.currentList
+        var index = manager.findFirstVisibleItemPosition()
+        if (index == RecyclerView.NO_POSITION) return
+        val event = shown.drop(index).firstNotNullOfOrNull { row ->
+            when (row) {
+                is CalendarRow.Series -> row.item
+                is CalendarRow.DayGroup -> row.items.firstOrNull()
+                else -> null
+            }
+        } ?: return
+        if (event.subscribed != (page.kind == FILTER_SUBSCRIPTION)) return
         val offset = (manager.findViewByPosition(index)?.top ?: 0) - binding.list.paddingTop
-        listPrefs.edit().putLong("${filterKind}_event", row.item.eventId)
-            .putInt("${filterKind}_index", index).putInt("${filterKind}_offset", offset).apply()
+        listPrefs.edit().putLong("${page.kind}_event", event.eventId)
+            .putInt("${page.kind}_index", index).putInt("${page.kind}_offset", offset).apply()
     }
 
     private fun openSeries(series: EventSeries) {
         if (!app.deviceCalendar.openEvent(this, series.next)) Toast.makeText(this, "打不开这条日程", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun rowsFor(items: List<EventSeries>, today: LocalDate): List<CalendarRow> {
+        val rows = mutableListOf<CalendarRow>()
+        items.sortedWith(compareBy<EventSeries> { it.next.beginMs }.thenBy { it.title })
+            .groupBy { it.next.localDate() }
+            .forEach { (date, day) ->
+                if (day.size > 1) {
+                    rows += CalendarRow.DayGroup(date, CalendarLabels.dayHeader(date, today), day, today)
+                } else {
+                    rows += CalendarRow.Series(day.first(), renderedOn = today)
+                }
+            }
+        return rows
     }
 
     companion object {

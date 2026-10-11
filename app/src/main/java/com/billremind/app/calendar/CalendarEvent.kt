@@ -106,6 +106,12 @@ data class CalendarEvent(
 
 sealed class CalendarRow {
     data class Section(val kind: RecurrenceKind, val title: String, val count: Int) : CalendarRow()
+    data class DayGroup(
+        val date: LocalDate,
+        val title: String,
+        val items: List<EventSeries>,
+        val renderedOn: LocalDate
+    ) : CalendarRow()
     data class Series(
         val item: EventSeries,
         val renderedOn: LocalDate = LocalDate.now(),
